@@ -1,91 +1,102 @@
-import axios from "axios";
-import { BASE_URL } from "../utils/constant.js";
-import { useDispatch, useSelector } from "react-redux";
-import { addRequests, removeRequest } from "../utils/requestSlice";
-import { useEffect } from "react";
+const axios = require("axios");
+const express = require("express");
+const requestRouter = express.Router();
 
-const Requests = () => {
-  const requests = useSelector((store) => store.requests);
-  const dispatch = useDispatch();
+const { userAuth } = require("../middlewares/auth");
+const ConnectionRequest = require("../models/connectionRequest");
+const User = require("../models/user");
 
-  const reviewRequest = async (status, _id) => {
+requestRouter.post(
+  "/request/send/:status/:toUserId",
+  userAuth,
+  async (req, res) => {
     try {
-      await axios.post(
-        BASE_URL + "/request/review/" + status + "/" + _id,
-        {},
-        { withCredentials: true }
-      );
-      dispatch(removeRequest(_id));
-    } catch (err) {
-      console.log(err);
-    }
-  };
+      const fromUserId = req.user._id;
+      const toUserId = req.params.toUserId;
+      const status = req.params.status;
 
-  const fetchRequests = async () => {
-    try {
-      const res = await axios.get(BASE_URL + "/user/requests/received", {
-        withCredentials: true,
+      const allowedStatus = ["ignored", "interested"];
+      if (!allowedStatus.includes(status)) {
+        return res
+          .status(400)
+          .json({ message: "Invalid status type: " + status });
+      }
+
+      const toUser = await User.findById(toUserId);
+      if (!toUser) {
+        return res.status(404).json({ message: "User not found!" });
+      }
+
+      const existingConnectionRequest = await ConnectionRequest.findOne({
+        $or: [
+          { fromUserId, toUserId },
+          { fromUserId: toUserId, toUserId: fromUserId },
+        ],
+      });
+      if (existingConnectionRequest) {
+        return res
+          .status(400)
+          .send({ message: "Connection Request Already Exists!!" });
+      }
+
+      const connectionRequest = new ConnectionRequest({
+        fromUserId,
+        toUserId,
+        status,
       });
 
-      dispatch(addRequests(res.data.data));
-    } catch (err) {}
-  };
+      const data = await connectionRequest.save();
 
-  useEffect(() => {
-    fetchRequests();
-  }, []);
+      // const emailRes = await sendEmail.run(
+      //   "A new friend request from " + req.user.firstName,
+      //   req.user.firstName + " is " + status + " in " + toUser.firstName
+      // );
+      // console.log(emailRes);
 
-  if (!requests) return;
+      res.json({
+        message:
+          req.user.firstName + " is " + status + " in " + toUser.firstName,
+        data,
+      });
+    } catch (err) {
+      res.status(400).send("ERROR: " + err.message);
+    }
+  }
+);
 
-  if (requests.length === 0)
-    return <h1 className="flex justify-center my-10"> No Requests Found</h1>;
+requestRouter.post(
+  "/request/review/:status/:requestId",
+  userAuth,
+  async (req, res) => {
+    try {
+      const loggedInUser = req.user;
+      const { status, requestId } = req.params;
 
-  return (
-    <div className="text-center my-10">
-      <h1 className="text-bold text-white text-3xl">Connection Requests</h1>
+      const allowedStatus = ["accepted", "rejected"];
+      if (!allowedStatus.includes(status)) {
+        return res.status(400).json({ messaage: "Status not allowed!" });
+      }
 
-      {requests.map((request) => {
-        const { _id, firstName, lastName, photoUrl, age, gender, about } =
-          request.fromUserId;
+      const connectionRequest = await ConnectionRequest.findOne({
+        _id: requestId,
+        toUserId: loggedInUser._id,
+        status: "interested",
+      });
+      if (!connectionRequest) {
+        return res
+          .status(404)
+          .json({ message: "Connection request not found" });
+      }
 
-        return (
-          <div
-            key={_id}
-            className="flex justify-between items-center m-4 p-4 rounded-lg bg-base-300 mx-auto"
-          >
-            <div>
-              <img
-                alt="photo"
-                className="w-20 h-20 rounded-full"
-                src={photoUrl}
-              />
-            </div>
-            <div className="text-left mx-4 ">
-              <h2 className="font-bold text-xl">
-                {firstName + " " + lastName}
-              </h2>
-              {age && gender && <p>{age + ", " + gender}</p>}
-              <p>{about}</p>
-            </div>
-            <div>
-              <button
-                className="btn btn-primary mx-2"
-                onClick={() => reviewRequest("rejected", request._id)}
-              >
-                Reject
-              </button>
-              <button
-                className="btn btn-secondary mx-2"
-                onClick={() => reviewRequest("accepted", request._id)}
-              >
-                Accept
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+      connectionRequest.status = status;
 
-export default Requests;
+      const data = await connectionRequest.save();
+
+      res.json({ message: "Connection request " + status, data });
+    } catch (err) {
+      res.status(400).send("ERROR: " + err.message);
+    }
+  }
+);
+
+module.exports = requestRouter;
