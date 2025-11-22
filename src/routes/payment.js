@@ -68,7 +68,10 @@ paymentRouter.post("/webhook", async (req, res) => {
 
     console.log("Valid signature");
 
-    const paymentDetails = JSON.parse(req.body).payload.payment.entity;
+    const rawBody = req.body.toString(); // Convert Buffer → string
+    const parsedBody = JSON.parse(rawBody); // Convert string → JSON
+    const paymentDetails = parsedBody.payload.payment.entity;
+
 
     const payment = await Payment.findOne({ orderId: paymentDetails.order_id });
     payment.status = paymentDetails.status;
