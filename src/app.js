@@ -3,8 +3,12 @@ const express = require("express");
 const connectDB = require("./config/database");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
+const paymentRouter = require("./routes/payment.js");
 const app = express();
 require("../src/utils/cronjob.js");
+
+app.post("/payment/webhook", express.raw({ type: "application/json" }));
+
 
 // Middlewares
 app.use(
@@ -21,6 +25,7 @@ app.use("/", require("./routes/auth"));
 app.use("/profile", require("./routes/profile"));
 app.use("/request", require("./routes/request"));
 app.use("/user", require("./routes/user"));
+app.use("/payment", paymentRouter);
 
 // DB + Server
 connectDB().then(() => {
